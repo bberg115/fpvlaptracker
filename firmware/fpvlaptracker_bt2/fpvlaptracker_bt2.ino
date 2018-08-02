@@ -50,6 +50,7 @@
 #include "btcomm.h"
 #include "frequency.h"
 #include "rx5808.h"
+#include "statemanager.h"
 
 // debug mode flag
 //#define DEBUG
@@ -69,29 +70,11 @@ lap::LapDetector lapDetector(&storage, &rssi);
 comm::WifiComm wifiComm(&storage);
 radio::Rx5808 rx5808(PIN_SPI_CLOCK, PIN_SPI_DATA, PIN_SPI_SLAVE_SELECT, PIN_ANALOG_RSSI);
 comm::BtComm btComm(&storage, &rssi, &rx5808);
+statemanagement::StateManager stateManager;
 
-enum class state_enum {
-	STARTUP,
-	CALIBRATION,
-	CALIBRATION_DONE,
-	SCAN,
-	RACE,
-	ERROR
-};
-state_enum state = state_enum::STARTUP;
-state_enum oldState = state_enum::STARTUP;
-
-void setState(state_enum state2) {
-	state = state2;
-	if (state == state_enum::CALIBRATION) {
-		btComm.setState("Calibration");
-	} else if (state == state_enum::RACE) {
-		btComm.setState("Race");
-	} else if (state == state_enum::ERROR) {
-		btComm.setState("Error");
-	} else if (state == state_enum::SCAN) {
-		btComm.setState("Scan");
-	}
+void setState(statemanagement::state_enum state) {
+	stateManager.setState(state);
+	btComm.setState(stateManager.toString());
 }
 
 /*---------------------------------------------------
@@ -122,6 +105,8 @@ void setup() {
 		delay(25);
 	}
 	led.off();
+
+	btComm.addSubscriber(&stateManager);
 
 	randomSeed(analogRead(0));
 #ifdef DEBUG
@@ -198,7 +183,7 @@ void loop() {
 	Serial.println(rssi.getRssi());
 #endif
 
-	if (state == state_enum::STARTUP) {
+	if (stateManager.isStateStartup()) {
 #if defined(DEBUG) || defined(MEASURE)
 		Serial.println(F("STATE: STARTUP"));
 #endif
@@ -222,14 +207,14 @@ void loop() {
 		Serial.print(F("VAR: rssi_offset="));
 		Serial.println(rssiRaw);
 #endif
-		setState(state_enum::CALIBRATION);
+		setState(statemanagement::state_enum::CALIBRATION);
 		lapDetector.enableCalibrationMode();
 		led.interval(50);
 		led.mode(ledio::modes::BLINK);
-	} else if (state == state_enum::SCAN) {
+	} else if (stateManager.isStateScan()) {
 		rx5808.scan();
 		if (rx5808.isScanStopped()) {
-			setState(oldState);
+			stateManager.restoreState();
 			unsigned int channelData = freq::Frequency::getSPIFrequencyForChannelIndex(storage.getChannelIndex());
 			rx5808.freq(channelData);
 		} else if (rx5808.isScanDone()) {
@@ -241,33 +226,33 @@ void loop() {
 			}
 			rx5808.startScan(currentChannel);
 		}
-	} else if (state == state_enum::CALIBRATION) {
+	} else if (stateManager.isStateCalibration()) {
 #ifdef MEASURE
 		Serial.println(F("STATE: CALIBRATION"));
 #endif
 		if (rx5808.isScan()) {
-			oldState = state;
-			setState(state_enum::SCAN);
+			stateManager.storeState();
+			stateManager.setState(statemanagement::state_enum::SCAN);
 		}
 		if (lapDetector.process()) {
 #ifdef MEASURE
 			Serial.println(F("INFO: lap detected, calibration is done"));
 #endif
-			setState(state_enum::CALIBRATION_DONE);
+			stateManager.setState(statemanagement::state_enum::CALIBRATION_DONE);
 		}
-	} else if (state == state_enum::CALIBRATION_DONE) {
+	} else if (stateManager.isStateCalibrationDone()) {
 #if defined(DEBUG) || defined(MEASURE)
 		Serial.println(F("STATE: CALIBRATION_DONE"));
 #endif
-		setState(state_enum::RACE);
+		stateManager.setState(statemanagement::state_enum::RACE);
 		led.mode(ledio::modes::OFF);
-	} else if (state == state_enum::RACE) {
+	} else if (stateManager.isStateRace()) {
 #ifdef MEASURE
 		Serial.println(F("STATE: RACE"));
 #endif
 		if (rx5808.isScan()) {
-			oldState = state;
-			setState(state_enum::SCAN);
+			stateManager.storeState();
+			stateManager.setState(statemanagement::state_enum::SCAN);
 		}
 		if (lapDetector.process()) {
 #ifdef MEASURE
@@ -292,7 +277,7 @@ void loop() {
 			Serial.println(lapDetector.getLastLapTime());
 #endif
 		}
-	} else if (state == state_enum::ERROR) {
+	} else if (stateManager.isStateError()) {
 #ifdef MEASURE
 		Serial.println(F("STATE: ERROR"));
 #endif

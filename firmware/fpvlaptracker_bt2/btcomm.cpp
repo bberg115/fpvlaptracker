@@ -121,10 +121,13 @@ void BtComm::processIncommingMessage() {
         } else if (this->_serialString.length() >= 10 && this->_serialString.substring(0, 10) == "SCAN start") {
             // start channel scan
             this->_rx5808->startScan(this->_storage->getChannelIndex());
+            this->notifySubscribers(statemanagement::state_enum::SCAN);
             this->sendBtMessageWithNewline("SCAN: started");
+
         } else if (this->_serialString.length() >= 9 && this->_serialString.substring(0, 9) == "SCAN stop") {
             // stop channel scan
             this->_rx5808->stopScan();
+            this->notifySubscribers(statemanagement::state_enum::RESTORE_STATE);
             this->sendBtMessageWithNewline("SCAN: stopped");
         } else {
             String cmd = F("UNKNOWN_COMMAND: ");

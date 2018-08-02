@@ -8,12 +8,14 @@
 #include "rssi.h"
 #include "frequency.h"
 #include "rx5808.h"
+#include "publisher.h"
+#include "statemanager.h"
 
 namespace comm {
 
     enum btErrorCode { OK = 0, MODULE_NOT_RESPONDING = -1, NAME_COMMAND_FAILED = -2, PIN_COMMAND_FAILED = -3 };
 
-    class BtComm : public Comm {
+    class BtComm : public Comm, public pubsub::Publisher<statemanagement::state_enum> {
     public:
         BtComm(util::Storage *storage, lap::Rssi *rssi, radio::Rx5808 *rx5808);
         void reg();
