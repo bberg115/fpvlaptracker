@@ -35,13 +35,12 @@
  * blink codes:
  * slow blinking - standalone mode
  * fast blinking - connected mode
- * blinking 2 times - BT version command not OK
- * blinking 3 times - BT name comamnd not OK
- * blinking 4 times - BT pin command not ok
+ * blinking 2 times - BT name command not OK
  * blinking 10 times - internal failure
  * 
  */
 #include <EEPROM.h>
+#include <BluetoothSerial.h>
 #include "rssi.h"
 #include "lapdetector.h"
 #include "ledcontrol.h"
@@ -53,7 +52,7 @@
 #include "statemanager.h"
 
 // debug mode flag
-//#define DEBUG
+#define DEBUG
 //#define MEASURE
 
 // pin configurations
@@ -69,12 +68,14 @@ util::Storage storage;
 lap::LapDetector lapDetector(&storage, &rssi);
 comm::WifiComm wifiComm(&storage);
 radio::Rx5808 rx5808(PIN_SPI_CLOCK, PIN_SPI_DATA, PIN_SPI_SLAVE_SELECT, PIN_ANALOG_RSSI);
-comm::BtComm btComm(&storage, &rssi, &rx5808);
+BluetoothSerial btSerial;
+comm::BtComm btComm(&btSerial, &storage, &rssi, &rx5808);
 statemanagement::StateManager stateManager;
+unsigned long fastRssiTimeout = 0L;
 
 void setState(statemanagement::state_enum state) {
 	stateManager.setState(state);
-	btComm.setState(stateManager.toString());
+	btComm.setState(stateManager.toString(stateManager.getState()));
 }
 
 /*---------------------------------------------------
@@ -87,18 +88,18 @@ void setup() {
 	Serial.println("");
 #ifdef DEBUG
 	Serial.println(F("booting"));
+	uint64_t chipid = ESP.getEfuseMac();
+	// upper 2 bytes
+	Serial.printf("ESP32 Chip ID = %04X", static_cast<uint16_t>(chipid >> 32));
+	// lower 4 bytes
+	Serial.printf("%08X\n", static_cast<uint32_t>(chipid));
 #endif
 #ifdef MEASURE
 	Serial.println(F("INFO: running measure mode"));
 #endif
 	Serial.flush();
-#else
-	Serial.begin(9600);
-	delay(100);
-	Serial.println();
-	Serial.flush();
-	delay(1000);
 #endif
+
 	// blink led to show startup
 	for (int i = 0; i < 20; i++) {
 		led.toggle();
@@ -144,24 +145,16 @@ void setup() {
 #ifdef DEBUG
 	Serial.println(F("connecting bluetooth"));
 #endif
-#if not defined(DEBUG) && not defined(MEASURE)
 	int bterr = btComm.connect();
 	if (bterr < 0) {
 #ifdef DEBUG
 		Serial.print(F("bt module error: "));
 		Serial.println(bterr);
 #endif
-		if  (bterr == comm::btErrorCode::MODULE_NOT_RESPONDING) {
+		if  (bterr == comm::btErrorCode::NAME_COMMAND_FAILED) {
 			blinkError(2);
 		}
-		if  (bterr == comm::btErrorCode::NAME_COMMAND_FAILED) {
-			blinkError(3);
-		}
-		if  (bterr == comm::btErrorCode::PIN_COMMAND_FAILED) {
-			blinkError(4);
-		}
 	}
-#endif
 
 	// blink 5 times to show end of setup() and start of rssi offset detection
 	led.mode(ledio::modes::BLINK_SEQUENCE);
@@ -213,11 +206,8 @@ void loop() {
 		led.mode(ledio::modes::BLINK);
 	} else if (stateManager.isStateScan()) {
 		rx5808.scan();
-		if (rx5808.isScanStopped()) {
-			stateManager.restoreState();
-			unsigned int channelData = freq::Frequency::getSPIFrequencyForChannelIndex(storage.getChannelIndex());
-			rx5808.freq(channelData);
-		} else if (rx5808.isScanDone()) {
+		if (rx5808.isScanDone()) {
+			// scan is done, start over
 			unsigned int currentChannel = rx5808.getScanChannelIndex();
 			btComm.sendScanData(freq::Frequency::getFrequencyForChannelIndex(currentChannel), rx5808.getScanResult());
 			currentChannel++;
@@ -226,14 +216,15 @@ void loop() {
 			}
 			rx5808.startScan(currentChannel);
 		}
+	} else if (stateManager.isStateRssi()) {
+		if (millis() > fastRssiTimeout) {
+			fastRssiTimeout = millis() + 100;
+			btComm.sendFastRssiData(rssi.getRssi());
+		}
 	} else if (stateManager.isStateCalibration()) {
 #ifdef MEASURE
 		Serial.println(F("STATE: CALIBRATION"));
 #endif
-		if (rx5808.isScan()) {
-			stateManager.storeState();
-			stateManager.setState(statemanagement::state_enum::SCAN);
-		}
 		if (lapDetector.process()) {
 #ifdef MEASURE
 			Serial.println(F("INFO: lap detected, calibration is done"));
@@ -250,10 +241,6 @@ void loop() {
 #ifdef MEASURE
 		Serial.println(F("STATE: RACE"));
 #endif
-		if (rx5808.isScan()) {
-			stateManager.storeState();
-			stateManager.setState(statemanagement::state_enum::SCAN);
-		}
 		if (lapDetector.process()) {
 #ifdef MEASURE
 			Serial.println(F("INFO: lap detected"));

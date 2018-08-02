@@ -2,55 +2,27 @@
 
 using namespace comm;
 
-//#define DEBUG
+#define DEBUG
 
-BtComm::BtComm(util::Storage *storage, lap::Rssi *rssi, radio::Rx5808 *rx5808) : Comm(storage), _serialGotLine(false), _serialString(false),
-    _rssi(rssi), _rx5808(rx5808) {
+BtComm::BtComm(BluetoothSerial *btSerial, util::Storage *storage, lap::Rssi *rssi, radio::Rx5808 *rx5808) : Comm(storage), _serialGotLine(false),
+    _serialString(false), _rssi(rssi), _rx5808(rx5808), _btSerial(btSerial) {
 
-}
-
-extern "C" {
-    #include "user_interface.h"
-    extern struct rst_info resetInfo;
 }
 
 int BtComm::connect() {
-
-    if (resetInfo.reason == REASON_SOFT_RESTART) {
-        // do not initialize bt module on soft restarts, it is already initialized from previous init
-        this->_connected = true;
-        return btErrorCode::OK;
-    }
-
-    unsigned long chipId = ESP.getChipId();
+#ifdef DEBUG
+    Serial.println(F("bluetooth connect()"));
+#endif
+    uint64_t chipId = ESP.getEfuseMac();
     char strChipId[10];
     sprintf(strChipId, "%u", chipId);
     String chipString = strChipId;
-    String name = "AT+NAMEFLT" + chipString;
-    String pin = "AT+PIN" + chipString.substring(0, 4);
+    String name = "FLT" + chipString;
+    this->_btSerial->begin(name);
 
 #ifdef DEBUG
     Serial.print(F("name command: "));
     Serial.println(name);
-    Serial.print(F("pin command: "));
-    Serial.println(pin);
-#else
-    unsigned int count = 5;
-    while (count > 0) {
-        count--;
-        if (btSendAndWaitForOK(F("AT+VERSION"))) {
-            break;
-        }   
-    }
-    if  (count == 0) {
-        return btErrorCode::MODULE_NOT_RESPONDING;
-    }
-    if (!btSendAndWaitForOK(name)) {
-        return btErrorCode::NAME_COMMAND_FAILED;
-    }
-    if (!btSendAndWaitForOK(pin)) {
-        return btErrorCode::PIN_COMMAND_FAILED;
-    }
 #endif
     this->_connected = true;
     return btErrorCode::OK;
@@ -72,12 +44,14 @@ void BtComm::sendBtMessageWithNewline(String msg) {
     sendBtMessage(msg, true);
 }
 void BtComm::sendBtMessage(String msg, boolean newLine) {
-#ifndef DEBUG
     if (newLine) {
         msg += '\n';
     }
-    Serial.write(msg.c_str());
+#ifdef DEBUG
+    Serial.print("sendBtMessage(): ");
+    Serial.println(msg);
 #endif
+    this->_btSerial->print(msg.c_str());
 }
 
 /*---------------------------------------------------
@@ -85,8 +59,8 @@ void BtComm::sendBtMessage(String msg, boolean newLine) {
  *-------------------------------------------------*/
 void BtComm::processIncommingMessage() {
     // process serial data
-    while (Serial.available()) {
-        char c = (char)Serial.read();
+    while (this->_btSerial->available()) {
+        char c = (char)this->_btSerial->read();
         this->_serialString += c;
         if (c == '\n') {
             this->_serialGotLine = true;
@@ -95,6 +69,10 @@ void BtComm::processIncommingMessage() {
 
     // process serial line
     if (this->_serialGotLine) {
+#ifdef DEBUG
+            Serial.print("processIncommingMessage(): ");
+            Serial.println(this->_serialString);
+#endif
         if (this->_serialString.length() >= 11 && this->_serialString.substring(0, 11) == "GET version") {
             // get the version
             String v = F("VERSION: 2.0");
@@ -123,12 +101,19 @@ void BtComm::processIncommingMessage() {
             this->_rx5808->startScan(this->_storage->getChannelIndex());
             this->notifySubscribers(statemanagement::state_enum::SCAN);
             this->sendBtMessageWithNewline("SCAN: started");
-
         } else if (this->_serialString.length() >= 9 && this->_serialString.substring(0, 9) == "SCAN stop") {
             // stop channel scan
             this->_rx5808->stopScan();
             this->notifySubscribers(statemanagement::state_enum::RESTORE_STATE);
             this->sendBtMessageWithNewline("SCAN: stopped");
+        } else if (this->_serialString.length() >= 10 && this->_serialString.substring(0, 10) == "START rssi") {
+            // start fast rssi scan
+            this->notifySubscribers(statemanagement::state_enum::RSSI);
+            this->sendBtMessageWithNewline("RSSI: started");
+        } else if (this->_serialString.length() >= 9 && this->_serialString.substring(0, 9) == "STOP rssi") {
+            // stop fast rssi scan
+            this->notifySubscribers(statemanagement::state_enum::RESTORE_STATE);
+            this->sendBtMessageWithNewline("RSSI: stopped");
         } else {
             String cmd = F("UNKNOWN_COMMAND: ");
             cmd += this->_serialString;
@@ -182,40 +167,6 @@ void BtComm::processStoreConfig() {
   }
 }
 
-/*---------------------------------------------------
- * serial config method for hc-06
- *-------------------------------------------------*/
-bool BtComm::btSendAndWaitForOK(String data) {
-    this->sendBtMessage(data);
-    unsigned int waitProtection = 500;
-    while (Serial.available() == 0 && waitProtection > 0) {
-        delay(10);
-        waitProtection--;
-    }
-    if (waitProtection == 0) {
-#ifdef DEBUG
-        Serial.println(F("failed waiting for input"));
-#endif
-        return false;
-    }
-    // put short delay, hc06 takes some time for sending the config response
-    delay(500);
-
-    String result = "";
-    while (Serial.available() > 0) {
-        char c = (char)Serial.read();
-        result += c;
-    }
-
-    if (result.substring(0, 2) == "OK") {
-        return true;
-    }
-#ifdef DEBUG
-    Serial.println(F("NOK"));
-#endif
-    return false;
-}
-
 void BtComm::setState(String state) {
     this->_state = state;
 }
@@ -226,4 +177,10 @@ void BtComm::sendScanData(unsigned int frequency, unsigned int rssi) {
     scan += "=";
     scan += rssi;
     this->sendBtMessageWithNewline(scan);
+}
+
+void BtComm::sendFastRssiData(unsigned int rssi) {
+    String rssi2 = F("RSSI: ");
+    rssi2 += rssi;
+    this->sendBtMessageWithNewline(rssi2);
 }

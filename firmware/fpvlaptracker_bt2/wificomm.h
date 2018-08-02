@@ -1,9 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
-#include <ESP8266WiFi.h>
-#include <WiFiClient.h>
-#include <WiFiUdp.h>
+#include <WiFi.h>
 
 #include "comm.h"
 #include "storage.h"

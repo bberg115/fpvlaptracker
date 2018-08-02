@@ -39,7 +39,6 @@ SOFTWARE.
 namespace radio {
 
     enum class scan_state {
-        STOP,
         SET,
         SCAN,
         DONE
@@ -48,7 +47,7 @@ namespace radio {
     class Rx5808 {
     public:
         Rx5808(unsigned int pinSpiClock, unsigned int pinSpiData, unsigned int pinSpiSlaveSelect, unsigned int pinRssi);
-        void freq(uint16_t channelData);
+        void freq(unsigned int channelData);
         void init();
         void startScan(unsigned int channelIndex) {
             this->_scanState = scan_state::SET;
@@ -60,20 +59,17 @@ namespace radio {
         bool isScanDone() {
             return this->_scanState == scan_state::DONE;
         }
-        bool isScanStopped() {
-            return this->_scanState == scan_state::STOP;
-        }
         bool isScan() {
             return this->_scanState == scan_state::SCAN || this->_scanState == scan_state::SET;
+        }
+        void stopScan() {
+            this->freq(this->_freq);
         }
         unsigned int getScanResult() {
             return this->_scanLastRssi;
         }
         scan_state getScanState() {
             return this->_scanState;
-        }
-        void stopScan() {
-            this->_scanState = scan_state::STOP;
         }
         void scan();
 
@@ -82,6 +78,7 @@ namespace radio {
         unsigned int _pinSpiData;
         unsigned int _pinSpiSlaveSelect;
         unsigned int _pinRssi;
+        unsigned int _freq;
         
         unsigned long _scanLastRun;
         unsigned int _scanLastRssi;

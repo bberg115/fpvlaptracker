@@ -8,7 +8,7 @@ namespace pubsub {
     public:
         Subscriber() {}
         virtual ~Subscriber() {}
-        virtual void update(T *value) = 0;
+        virtual void update(T value) = 0;
     };
 
 }

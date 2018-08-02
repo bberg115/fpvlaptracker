@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include "subscriber.h"
 
+#define DEBUG
+
 namespace statemanagement {
 
     enum class state_enum {
@@ -21,17 +23,19 @@ namespace statemanagement {
         StateManager() : _state(state_enum::STARTUP), _storeState(state_enum::STARTUP) {
         }
 
-        String toString() {
-            if (this->isStateCalibration()) {
+        String toString(state_enum state) {
+            if (state == state_enum::CALIBRATION) {
                 return "Calibration";
-            } else if (this->isStateRace()) {
+            } else if (state == state_enum::RACE) {
                 return "Race";
-            } else if (this->isStateError()) {
+            } else if (state == state_enum::ERROR) {
                 return "Error";
-            } else if (this->isStateScan()) {
+            } else if (state == state_enum::SCAN) {
                 return "Scan";
-            } else if (this->isStateRssi()) {
+            } else if (state == state_enum::RSSI) {
                 return "RSSI";
+            } else if (state == state_enum::STARTUP) {
+                return "Startup";
             } else {
                 return "Unknown";
             }
@@ -71,6 +75,11 @@ namespace statemanagement {
 
         void setState(state_enum state) {
             if (state != this->_state) {
+#ifdef DEBUG
+                Serial.print(F("change state to "));
+                Serial.println(this->toString(state));
+#endif
+                this->storeState();
                 this->_state = state;
             }
         }
@@ -83,14 +92,19 @@ namespace statemanagement {
             this->_state = this->_storeState;
         }
 
-        void update(state_enum *state){
-            if (*state == state_enum::RESTORE_STATE) {
-                state = &this->_storeState;
-            }
-            this->_state = *state;
+        void update(state_enum state){
+            if (state == state_enum::RESTORE_STATE) {
 #ifdef DEBUG
-            Serial.print("state change request to ");
-            Serial.println(this->toString());
+                Serial.print(F("restore state request to "));
+                Serial.println(this->toString(this->_storeState));
+#endif
+                this->_state = this->_storeState;
+                return;
+            }
+            this->_state = state;
+#ifdef DEBUG
+            Serial.print(F("state change request to "));
+            Serial.println(this->toString(this->_state));
 #endif
         }
         

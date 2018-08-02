@@ -6,7 +6,7 @@ using namespace radio;
 
 Rx5808::Rx5808(unsigned int pinSpiClock, unsigned int pinSpiData, unsigned int pinSpiSlaveSelect, unsigned int pinRssi) : 
     _pinSpiClock(pinSpiClock), _pinSpiData(pinSpiData), _pinSpiSlaveSelect(pinSpiSlaveSelect), _pinRssi(pinRssi),
-	_scanLastRun(0L), _scanLastRssi(0), _scanState(scan_state::STOP), _scanChannelIndex(0) {
+	_scanLastRun(0L), _scanLastRssi(0), _scanState(scan_state::DONE), _scanChannelIndex(0) {
 
 }
 
@@ -19,7 +19,8 @@ void Rx5808::init() {
 	pinMode(this->_pinSpiSlaveSelect, OUTPUT);
 }
 
-void Rx5808::freq(uint16_t channelData) {
+void Rx5808::freq(unsigned int channelData) {
+	this->_freq = channelData;
 	// Second is the channel data from the lookup table
 	// 20 bytes of register data are sent, but the MSB 4 bits are zeros
 	// register address = 0x1, write, data0-15=channelData data15-19=0x0

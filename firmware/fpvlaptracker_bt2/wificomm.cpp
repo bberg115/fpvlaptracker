@@ -2,7 +2,7 @@
 
 using namespace comm;
 
-//#define DEBUG
+#define DEBUG
 const unsigned int UDP_PORT = 31337;
 
 WifiComm::WifiComm(util::Storage *storage) : Comm(storage), _wifiSsidFound(false) {
@@ -81,7 +81,7 @@ void WifiComm::sendUdpMessage(String msg) {
     Serial.println(msg);
 #endif
     this->_udp.beginPacket(this->getBroadcastIP().c_str(), UDP_PORT);
-    this->_udp.write(msg.c_str());
+    this->_udp.print(msg.c_str());
     this->_udp.endPacket();
 }
 
@@ -90,7 +90,7 @@ void WifiComm::lap(unsigned long lapTime, unsigned int rssi) {
     Serial.println(F("sending lap message"));
 #endif
     String msg = "{\"type\":\"lap\",\"chipid\":";
-    msg += ESP.getChipId();
+    msg += static_cast<unsigned long>(ESP.getEfuseMac());
     msg += ",\"duration\":";
     msg += lapTime;
     msg += ",\"rssi\":";
@@ -121,7 +121,7 @@ void WifiComm::reg() {
     Serial.println(F("sending register message"));
 #endif
     String msg = "{\"type\":\"registerbt2\",\"chipid\":";
-    msg += ESP.getChipId();
+    msg += static_cast<unsigned long>(ESP.getEfuseMac());
     msg += ",\"ip\":";
     msg += WiFi.localIP();
     msg += "}";
