@@ -1,5 +1,5 @@
 /*
- * fpv lap tracker
+ * fpvlaptracker32 firmware
  * fpv lap tracking software that uses rx5808 to keep track of the fpv video signals
  * rssi for lap detection
  * 
@@ -56,17 +56,18 @@
 #include "statemanager.h"
 #include "webupdate.h"
 
-// debug mode flag
-#define DEBUG
+// debug mode flags
+//#define DEBUG
 //#define MEASURE
 
 // pin configurations
-const unsigned int PIN_SPI_SLAVE_SELECT = 12;
-const unsigned int PIN_SPI_CLOCK = 13;
-const unsigned int PIN_SPI_DATA = 14;
-const unsigned int PIN_LED = 5;
+const unsigned int PIN_SPI_SLAVE_SELECT = 16;
+const unsigned int PIN_SPI_CLOCK = 17;
+const unsigned int PIN_SPI_DATA = 18;
+const unsigned int PIN_LED = 19;
 const unsigned int PIN_ANALOG_RSSI = 32;
-const unsigned int PIN_WEB_UPDATE = 33;
+const unsigned int PIN_WEB_UPDATE = 21;
+const unsigned int PIN_ANALOG_BATTERY = 33;
 
 lap::Rssi rssi(PIN_ANALOG_RSSI);
 ledio::LedControl led(PIN_LED);
@@ -122,8 +123,8 @@ void setup() {
 	Serial.println(F("setting up ports"));
 #endif
 	rx5808.init();
-	pinMode(PIN_WEB_UPDATE, INPUT_PULLUP);
-	if (digitalRead(PIN_WEB_UPDATE) == LOW) {
+	pinMode(PIN_WEB_UPDATE, INPUT_PULLDOWN);
+	if (digitalRead(PIN_WEB_UPDATE) == HIGH) {
 #ifdef DEBUG
 		Serial.println(F("enabling webupdate mode"));
 #endif		
@@ -139,10 +140,10 @@ void setup() {
 	if (webUpdateMode) {
 		// running in webupdate mode
 #ifdef DEBUG
-		Serial.println(F("running in webupdate mode"));
+		Serial.println(F("starting webupdate mode"));
 		Serial.println(F("setting up wifi ap"));
 #endif
-		WiFi.softAP(storage.getSsid().c_str(), storage.getWifiPassword().c_str());
+		WiFi.softAP("fltunit", "fltunit");
 #ifdef DEBUG
 		IPAddress myIP = WiFi.softAPIP();
 		Serial.print("AP IP address: ");
@@ -158,13 +159,16 @@ void setup() {
 #endif
 			blinkError(3);
 		}
-		webUpdate.setVersion("2.0");
+		webUpdate.setVersion("1.0");
 		webUpdate.begin();
 	    MDNS.addService("http", "tcp", 80);
 
+		// blink 5 times to show end of setup() and start of rssi offset detection
+		led.mode(ledio::modes::BLINK_SEQUENCE);
+		led.blinkSequence(5, 500, 1000);
 	} else {
 #ifdef DEBUG
-		Serial.println(F("running in non webupdate mode"));
+		Serial.println(F("starting in normal mode"));
 #endif
 		// non webupdate mode
 		lapDetector.init();
@@ -202,11 +206,12 @@ void setup() {
 				blinkError(2);
 			}
 		}
+
+		// blink 5 times to show end of setup() and start of rssi offset detection
+		led.mode(ledio::modes::BLINK_SEQUENCE);
+		led.blinkSequence(5, 15, 250);
 	}
 
-	// blink 5 times to show end of setup() and start of rssi offset detection
-	led.mode(ledio::modes::BLINK_SEQUENCE);
-	led.blinkSequence(5, 15, 250);
 #ifdef DEBUG
 	Serial.println(F("entering main loop"));
 #endif

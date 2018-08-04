@@ -86,6 +86,10 @@ namespace statemanagement {
 
         void storeState() {
             this->_storeState = this->_state;
+#ifdef DEBUG
+            Serial.print(F("stored state "));
+            Serial.println(this->toString(this->_storeState));
+#endif
         }
         
         void restoreState() {
@@ -98,14 +102,14 @@ namespace statemanagement {
                 Serial.print(F("restore state request to "));
                 Serial.println(this->toString(this->_storeState));
 #endif
-                this->_state = this->_storeState;
+                this->setState(this->_storeState);
                 return;
             }
-            this->_state = state;
 #ifdef DEBUG
             Serial.print(F("state change request to "));
-            Serial.println(this->toString(this->_state));
+            Serial.println(this->toString(state));
 #endif
+            this->setState(state);
         }
         
     private:
