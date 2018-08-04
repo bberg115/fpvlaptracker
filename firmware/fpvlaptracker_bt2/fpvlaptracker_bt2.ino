@@ -36,11 +36,15 @@
  * slow blinking - standalone mode
  * fast blinking - connected mode
  * blinking 2 times - BT name command not OK
+ * blinking 3 times - mdns not started
  * blinking 10 times - internal failure
  * 
  */
 #include <EEPROM.h>
 #include <BluetoothSerial.h>
+#include <ESPmDNS.h>
+#include <WiFi.h>
+
 #include "rssi.h"
 #include "lapdetector.h"
 #include "ledcontrol.h"
@@ -50,6 +54,7 @@
 #include "frequency.h"
 #include "rx5808.h"
 #include "statemanager.h"
+#include "webupdate.h"
 
 // debug mode flag
 #define DEBUG
@@ -60,7 +65,8 @@ const unsigned int PIN_SPI_SLAVE_SELECT = 12;
 const unsigned int PIN_SPI_CLOCK = 13;
 const unsigned int PIN_SPI_DATA = 14;
 const unsigned int PIN_LED = 5;
-const unsigned int PIN_ANALOG_RSSI = A0;
+const unsigned int PIN_ANALOG_RSSI = 32;
+const unsigned int PIN_WEB_UPDATE = 33;
 
 lap::Rssi rssi(PIN_ANALOG_RSSI);
 ledio::LedControl led(PIN_LED);
@@ -72,6 +78,8 @@ BluetoothSerial btSerial;
 comm::BtComm btComm(&btSerial, &storage, &rssi, &rx5808);
 statemanagement::StateManager stateManager;
 unsigned long fastRssiTimeout = 0L;
+bool webUpdateMode = false;
+WebUpdate webUpdate;
 
 void setState(statemanagement::state_enum state) {
 	stateManager.setState(state);
@@ -114,45 +122,85 @@ void setup() {
 	Serial.println(F("setting up ports"));
 #endif
 	rx5808.init();
+	pinMode(PIN_WEB_UPDATE, INPUT_PULLUP);
+	if (digitalRead(PIN_WEB_UPDATE) == LOW) {
+#ifdef DEBUG
+		Serial.println(F("enabling webupdate mode"));
+#endif		
+		webUpdateMode = true;
+	}
 
 #ifdef DEBUG
 	Serial.println(F("reading config from eeprom"));
 #endif
 	EEPROM.begin(512);
 	storage.load();
-	lapDetector.init();
+
+	if (webUpdateMode) {
+		// running in webupdate mode
+#ifdef DEBUG
+		Serial.println(F("running in webupdate mode"));
+		Serial.println(F("setting up wifi ap"));
+#endif
+		WiFi.softAP(storage.getSsid().c_str(), storage.getWifiPassword().c_str());
+#ifdef DEBUG
+		IPAddress myIP = WiFi.softAPIP();
+		Serial.print("AP IP address: ");
+		Serial.println(myIP);
+#endif
 
 #ifdef DEBUG
-	Serial.println(F("setting radio frequency"));
+		Serial.println(F("setting up mdns"));
 #endif
-	unsigned int channelData = freq::Frequency::getSPIFrequencyForChannelIndex(storage.getChannelIndex());
-	rx5808.freq(channelData);
+		if (!MDNS.begin("fltunit")) {
 #ifdef DEBUG
-	Serial.print(F("channel info: "));
-	Serial.print(freq::Frequency::getFrequencyForChannelIndex(storage.getChannelIndex()));
-	Serial.print(F(" MHz, "));
-	Serial.println(freq::Frequency::getChannelNameForChannelIndex(storage.getChannelIndex()));
+			Serial.println("Error setting up MDNS responder!");
+#endif
+			blinkError(3);
+		}
+		webUpdate.setVersion("2.0");
+		webUpdate.begin();
+	    MDNS.addService("http", "tcp", 80);
+
+	} else {
+#ifdef DEBUG
+		Serial.println(F("running in non webupdate mode"));
+#endif
+		// non webupdate mode
+		lapDetector.init();
+
+#ifdef DEBUG
+		Serial.println(F("setting radio frequency"));
+#endif
+		unsigned int channelData = freq::Frequency::getSPIFrequencyForChannelIndex(storage.getChannelIndex());
+		rx5808.freq(channelData);
+#ifdef DEBUG
+		Serial.print(F("channel info: "));
+		Serial.print(freq::Frequency::getFrequencyForChannelIndex(storage.getChannelIndex()));
+		Serial.print(F(" MHz, "));
+		Serial.println(freq::Frequency::getChannelNameForChannelIndex(storage.getChannelIndex()));
 #endif
 
 #ifdef DEBUG
-	Serial.println(F("connecting wifi"));
+		Serial.println(F("connecting wifi"));
 #endif
-	wifiComm.connect();
-	if (wifiComm.isConnected()) {
-		wifiComm.reg();
-	}
+		wifiComm.connect();
+		if (wifiComm.isConnected()) {
+			wifiComm.reg();
+		}
 
 #ifdef DEBUG
-	Serial.println(F("connecting bluetooth"));
+		Serial.println(F("connecting bluetooth"));
 #endif
-	int bterr = btComm.connect();
-	if (bterr < 0) {
+		int bterr = btComm.connect();
+		if (bterr < 0) {
 #ifdef DEBUG
-		Serial.print(F("bt module error: "));
-		Serial.println(bterr);
+			Serial.print(F("bt module error: "));
+			Serial.println(bterr);
 #endif
-		if  (bterr == comm::btErrorCode::NAME_COMMAND_FAILED) {
-			blinkError(2);
+			if  (bterr == comm::btErrorCode::NAME_COMMAND_FAILED) {
+				blinkError(2);
+			}
 		}
 	}
 
@@ -170,117 +218,120 @@ void setup() {
 void loop() {
 
 	led.run();
-	rssi.process();
-#ifdef MEASURE
-	Serial.print(F("VAR: rssi="));
-	Serial.println(rssi.getRssi());
-#endif
-
-	if (stateManager.isStateStartup()) {
-#if defined(DEBUG) || defined(MEASURE)
-		Serial.println(F("STATE: STARTUP"));
-#endif
-		// find the noise level
-		rssi.setRssiOffset(0);
-		unsigned long rssiRaw = 0L;
-		// do 200 rounds = 2 sec
-		for (unsigned int i = 0; i < 200; i++) {
-			rssi.process();
-			rssiRaw += rssi.getRssi();
-			led.run();
-			delay(10);
-		}
-		rssiRaw /= 200;
-		rssi.setRssiOffset(static_cast<unsigned int>(rssiRaw));
-#ifdef DEBUG
-		Serial.print(F("rssi offset: "));
-		Serial.println(rssiRaw);
-#endif
-#ifdef MEASURE
-		Serial.print(F("VAR: rssi_offset="));
-		Serial.println(rssiRaw);
-#endif
-		setState(statemanagement::state_enum::CALIBRATION);
-		lapDetector.enableCalibrationMode();
-		led.interval(50);
-		led.mode(ledio::modes::BLINK);
-	} else if (stateManager.isStateScan()) {
-		rx5808.scan();
-		if (rx5808.isScanDone()) {
-			// scan is done, start over
-			unsigned int currentChannel = rx5808.getScanChannelIndex();
-			btComm.sendScanData(freq::Frequency::getFrequencyForChannelIndex(currentChannel), rx5808.getScanResult());
-			currentChannel++;
-			if (currentChannel >= freq::NR_OF_FREQUENCIES) {
-				currentChannel = 0;
-			}
-			rx5808.startScan(currentChannel);
-		}
-	} else if (stateManager.isStateRssi()) {
-		if (millis() > fastRssiTimeout) {
-			fastRssiTimeout = millis() + 100;
-			btComm.sendFastRssiData(rssi.getRssi());
-		}
-	} else if (stateManager.isStateCalibration()) {
-#ifdef MEASURE
-		Serial.println(F("STATE: CALIBRATION"));
-#endif
-		if (lapDetector.process()) {
-#ifdef MEASURE
-			Serial.println(F("INFO: lap detected, calibration is done"));
-#endif
-			stateManager.setState(statemanagement::state_enum::CALIBRATION_DONE);
-		}
-	} else if (stateManager.isStateCalibrationDone()) {
-#if defined(DEBUG) || defined(MEASURE)
-		Serial.println(F("STATE: CALIBRATION_DONE"));
-#endif
-		stateManager.setState(statemanagement::state_enum::RACE);
-		led.mode(ledio::modes::OFF);
-	} else if (stateManager.isStateRace()) {
-#ifdef MEASURE
-		Serial.println(F("STATE: RACE"));
-#endif
-		if (lapDetector.process()) {
-#ifdef MEASURE
-			Serial.println(F("INFO: lap detected"));
-			Serial.print(F("VAR: lastlaptime="));
-			Serial.println(lapDetector.getLastLapTime());
-			Serial.print(F("VAR: lastlaprssi="));
-			Serial.println(lapDetector.getLastLapRssi());
-#endif
-			led.oneshot();
-			if (wifiComm.isConnected()) {
-				wifiComm.lap(lapDetector.getLastLapTime(), lapDetector.getLastLapRssi());
-			}
-			if (btComm.isConnected()) {
-				btComm.lap(lapDetector.getLastLapTime(), lapDetector.getLastLapRssi());
-			}
-#ifdef DEBUG
-			Serial.println(F("lap detected"));
-			Serial.print(F("rssi="));
-			Serial.println(lapDetector.getLastLapRssi());
-			Serial.print(F("laptime="));
-			Serial.println(lapDetector.getLastLapTime());
-#endif
-		}
-	} else if (stateManager.isStateError()) {
-#ifdef MEASURE
-		Serial.println(F("STATE: ERROR"));
-#endif
+	if (webUpdateMode) {
+		webUpdate.run();
 	} else {
-		blinkError(10);
-	}
+		rssi.process();
+#ifdef MEASURE
+		Serial.print(F("VAR: rssi="));
+		Serial.println(rssi.getRssi());
+#endif
 
-	// if we are not in standalone mode, process udp
-	if (wifiComm.isConnected()) {
-		wifiComm.processIncommingMessage();
-	}
+		if (stateManager.isStateStartup()) {
+#if defined(DEBUG) || defined(MEASURE)
+			Serial.println(F("STATE: STARTUP"));
+#endif
+			// find the noise level
+			rssi.setRssiOffset(0);
+			unsigned long rssiRaw = 0L;
+			// do 200 rounds = 2 sec
+			for (unsigned int i = 0; i < 200; i++) {
+				rssi.process();
+				rssiRaw += rssi.getRssi();
+				led.run();
+				delay(10);
+			}
+			rssiRaw /= 200;
+			rssi.setRssiOffset(static_cast<unsigned int>(rssiRaw));
+#ifdef DEBUG
+			Serial.print(F("rssi offset: "));
+			Serial.println(rssiRaw);
+#endif
+#ifdef MEASURE
+			Serial.print(F("VAR: rssi_offset="));
+			Serial.println(rssiRaw);
+#endif
+			setState(statemanagement::state_enum::CALIBRATION);
+			lapDetector.enableCalibrationMode();
+			led.interval(50);
+			led.mode(ledio::modes::BLINK);
+		} else if (stateManager.isStateScan()) {
+			rx5808.scan();
+			if (rx5808.isScanDone()) {
+				// scan is done, start over
+				unsigned int currentChannel = rx5808.getScanChannelIndex();
+				btComm.sendScanData(freq::Frequency::getFrequencyForChannelIndex(currentChannel), rx5808.getScanResult());
+				currentChannel++;
+				if (currentChannel >= freq::NR_OF_FREQUENCIES) {
+					currentChannel = 0;
+				}
+				rx5808.startScan(currentChannel);
+			}
+		} else if (stateManager.isStateRssi()) {
+			if (millis() > fastRssiTimeout) {
+				fastRssiTimeout = millis() + 100;
+				btComm.sendFastRssiData(rssi.getRssi());
+			}
+		} else if (stateManager.isStateCalibration()) {
+#ifdef MEASURE
+			Serial.println(F("STATE: CALIBRATION"));
+#endif
+			if (lapDetector.process()) {
+#ifdef MEASURE
+				Serial.println(F("INFO: lap detected, calibration is done"));
+#endif
+				stateManager.setState(statemanagement::state_enum::CALIBRATION_DONE);
+			}
+		} else if (stateManager.isStateCalibrationDone()) {
+#if defined(DEBUG) || defined(MEASURE)
+			Serial.println(F("STATE: CALIBRATION_DONE"));
+#endif
+			stateManager.setState(statemanagement::state_enum::RACE);
+			led.mode(ledio::modes::OFF);
+		} else if (stateManager.isStateRace()) {
+#ifdef MEASURE
+			Serial.println(F("STATE: RACE"));
+#endif
+			if (lapDetector.process()) {
+#ifdef MEASURE
+				Serial.println(F("INFO: lap detected"));
+				Serial.print(F("VAR: lastlaptime="));
+				Serial.println(lapDetector.getLastLapTime());
+				Serial.print(F("VAR: lastlaprssi="));
+				Serial.println(lapDetector.getLastLapRssi());
+#endif
+				led.oneshot();
+				if (wifiComm.isConnected()) {
+					wifiComm.lap(lapDetector.getLastLapTime(), lapDetector.getLastLapRssi());
+				}
+				if (btComm.isConnected()) {
+					btComm.lap(lapDetector.getLastLapTime(), lapDetector.getLastLapRssi());
+				}
+#ifdef DEBUG
+				Serial.println(F("lap detected"));
+				Serial.print(F("rssi="));
+				Serial.println(lapDetector.getLastLapRssi());
+				Serial.print(F("laptime="));
+				Serial.println(lapDetector.getLastLapTime());
+#endif
+			}
+		} else if (stateManager.isStateError()) {
+#ifdef MEASURE
+			Serial.println(F("STATE: ERROR"));
+#endif
+		} else {
+			blinkError(10);
+		}
 
-	if (btComm.isConnected()) {
-		btComm.processIncommingMessage();
-	}
+		// if we are not in standalone mode, process udp
+		if (wifiComm.isConnected()) {
+			wifiComm.processIncommingMessage();
+		}
 
+		if (btComm.isConnected()) {
+			btComm.processIncommingMessage();
+		}
+	}
 }
 
 /*---------------------------------------------------
@@ -303,3 +354,4 @@ void blinkError(unsigned int errorCode) {
 		delay(1000);
 	}
 }
+

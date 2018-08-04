@@ -2,7 +2,7 @@
 
 using namespace comm;
 
-#define DEBUG
+//#define DEBUG
 
 BtComm::BtComm(BluetoothSerial *btSerial, util::Storage *storage, lap::Rssi *rssi, radio::Rx5808 *rx5808) : Comm(storage), _serialGotLine(false),
     _serialString(false), _rssi(rssi), _rx5808(rx5808), _btSerial(btSerial) {
@@ -77,6 +77,11 @@ void BtComm::processIncommingMessage() {
             // get the version
             String v = F("VERSION: 2.0");
             this->sendBtMessageWithNewline(v);
+        } else if (this->_serialString.length() >= 12 && this->_serialString.substring(0, 12) == "0GET version") {
+            // TODO workaround for esp32, first connect after start sends a leading 0 all the time
+            // get the version
+            String v = F("VERSION: 2.0");
+            this->sendBtMessageWithNewline(v);
         } else if (this->_serialString.length() >= 8 && this->_serialString.substring(0, 8) == "GET rssi") {
             // get the current rssi
             String r = F("RSSI: ");
@@ -96,12 +101,12 @@ void BtComm::processIncommingMessage() {
         } else if (this->_serialString.length() >= 11 && this->_serialString.substring(0, 11) == "PUT config ") {
             // store the given config data
             this->processStoreConfig();
-        } else if (this->_serialString.length() >= 10 && this->_serialString.substring(0, 10) == "SCAN start") {
+        } else if (this->_serialString.length() >= 10 && this->_serialString.substring(0, 10) == "START scan") {
             // start channel scan
             this->_rx5808->startScan(this->_storage->getChannelIndex());
             this->notifySubscribers(statemanagement::state_enum::SCAN);
             this->sendBtMessageWithNewline("SCAN: started");
-        } else if (this->_serialString.length() >= 9 && this->_serialString.substring(0, 9) == "SCAN stop") {
+        } else if (this->_serialString.length() >= 9 && this->_serialString.substring(0, 9) == "STOP scan") {
             // stop channel scan
             this->_rx5808->stopScan();
             this->notifySubscribers(statemanagement::state_enum::RESTORE_STATE);
@@ -137,6 +142,7 @@ void BtComm::processGetConfig() {
     root["triggerThreshold"] = this->_storage->getTriggerThreshold();
     root["triggerThresholdCalibration"] = this->_storage->getTriggerThresholdCalibration();
     root["calibrationOffset"] = this->_storage->getCalibrationOffset();
+    root["state"] = this->_state;
     String c = F("CONFIG: ");
     root.printTo(c);
     this->sendBtMessageWithNewline(c);

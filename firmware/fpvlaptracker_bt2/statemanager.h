@@ -3,7 +3,7 @@
 #include <Arduino.h>
 #include "subscriber.h"
 
-#define DEBUG
+//#define DEBUG
 
 namespace statemanagement {
 
