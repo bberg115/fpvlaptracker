@@ -59,17 +59,11 @@ namespace radio {
         bool isScanDone() {
             return this->_scanState == scan_state::DONE;
         }
-        bool isScan() {
-            return this->_scanState == scan_state::SCAN || this->_scanState == scan_state::SET;
-        }
         void stopScan() {
             this->freq(this->_freq);
         }
         unsigned int getScanResult() {
             return this->_scanLastRssi;
-        }
-        scan_state getScanState() {
-            return this->_scanState;
         }
         void scan();
 
