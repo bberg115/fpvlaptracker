@@ -48,7 +48,7 @@ void BtComm::sendBtMessage(String msg, boolean newLine) {
         msg += '\n';
     }
 #ifdef DEBUG
-    Serial.print("sendBtMessage(): ");
+    Serial.print(F("sendBtMessage(): "));
     Serial.println(msg);
 #endif
     this->_btSerial->print(msg.c_str());
@@ -70,7 +70,7 @@ void BtComm::processIncommingMessage() {
     // process serial line
     if (this->_serialGotLine) {
 #ifdef DEBUG
-            Serial.print("processIncommingMessage(): ");
+            Serial.print(F("processIncommingMessage(): "));
             Serial.println(this->_serialString);
 #endif
         if (this->_serialString.length() >= 11 && this->_serialString.substring(0, 11) == "GET version") {

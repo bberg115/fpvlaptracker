@@ -146,7 +146,7 @@ void setup() {
 		WiFi.softAP("fltunit", "fltunit");
 #ifdef DEBUG
 		IPAddress myIP = WiFi.softAPIP();
-		Serial.print("AP IP address: ");
+		Serial.print(F("AP IP address: "));
 		Serial.println(myIP);
 #endif
 
@@ -155,7 +155,7 @@ void setup() {
 #endif
 		if (!MDNS.begin("fltunit")) {
 #ifdef DEBUG
-			Serial.println("Error setting up MDNS responder!");
+			Serial.println(F("error setting up MDNS responder!"));
 #endif
 			blinkError(3);
 		}
@@ -328,7 +328,7 @@ void loop() {
 			blinkError(10);
 		}
 
-		// if we are not in standalone mode, process udp
+		// if we are in network mode, process udp
 		if (wifiComm.isConnected()) {
 			wifiComm.processIncommingMessage();
 		}
