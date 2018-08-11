@@ -16,7 +16,7 @@ namespace ledio {
             this->_interval = interval;
         }
         void oneshot(unsigned long length = 100) {
-            this->blinkSequence(1, length, 0);
+            this->blinkSequence(1, length, 1);
             this->_mode = modes::BLINK_SEQUENCE;
         }
         void blinkSequence(unsigned int count, unsigned long length, unsigned long wait);

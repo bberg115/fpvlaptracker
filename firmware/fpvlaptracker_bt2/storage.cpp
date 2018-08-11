@@ -4,7 +4,7 @@ using namespace util;
 
 //#define DEBUG
 
-const char* CONFIG_VERSION = "010";
+const char* CONFIG_VERSION = "01B";
 const unsigned int CONFIG_START = 32;
 
 #ifndef max
@@ -12,7 +12,7 @@ const unsigned int CONFIG_START = 32;
 #endif
 
 Storage::Storage() : _channelIndex(0), _minLapTime(4000), _ssid("flt-base"), _wifiPassword("flt-base"),
-    _triggerThresholdCalibration(60), _triggerThreshold(30), _calibrationOffset(8) {
+    _triggerThresholdCalibration(120), _triggerThreshold(60), _calibrationOffset(15) {
 }
 
 void Storage::load() {

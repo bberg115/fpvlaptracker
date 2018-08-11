@@ -240,7 +240,7 @@ void loop() {
 			rssi.setRssiOffset(0);
 			unsigned long rssiRaw = 0L;
 			// do 200 rounds = 2 sec
-			for (unsigned int i = 0; i < 200; i++) {
+			for (unsigned int i = 0; i < 500; i++) {
 				rssi.process();
 				rssiRaw += rssi.getRssi();
 				led.run();
@@ -258,6 +258,9 @@ void loop() {
 #endif
 			setState(statemanagement::state_enum::CALIBRATION);
 			lapDetector.enableCalibrationMode();
+#ifdef DEBUG
+			Serial.println(F("switch to calibration mode"));
+#endif
 			led.interval(50);
 			led.mode(ledio::modes::BLINK);
 		} else if (stateManager.isStateScan()) {
@@ -285,13 +288,13 @@ void loop() {
 #ifdef MEASURE
 				Serial.println(F("INFO: lap detected, calibration is done"));
 #endif
-				stateManager.setState(statemanagement::state_enum::CALIBRATION_DONE);
+				setState(statemanagement::state_enum::CALIBRATION_DONE);
 			}
 		} else if (stateManager.isStateCalibrationDone()) {
 #if defined(DEBUG) || defined(MEASURE)
 			Serial.println(F("STATE: CALIBRATION_DONE"));
 #endif
-			stateManager.setState(statemanagement::state_enum::RACE);
+			setState(statemanagement::state_enum::RACE);
 			led.mode(ledio::modes::OFF);
 		} else if (stateManager.isStateRace()) {
 #ifdef MEASURE

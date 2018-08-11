@@ -1,3 +1,5 @@
+#!/usr/bin/python
+
 import sys
 import tkinter as tk
 import serial                  

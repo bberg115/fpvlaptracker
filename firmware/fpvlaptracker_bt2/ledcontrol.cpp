@@ -14,11 +14,11 @@ void LedControl::toggle() {
 }
 
 void LedControl::off() {
-    digitalWrite(this->_pin, LOW);
+    digitalWrite(this->_pin, HIGH);
 }
 
 void LedControl::on() {
-    digitalWrite(this->_pin, HIGH);
+    digitalWrite(this->_pin, LOW);
 }
 
 void LedControl::mode(modes mode) {
@@ -70,12 +70,12 @@ void LedControl::run() {
                 this->_blinkSequenceState++;
                 if (this->_blinkSequenceState % 2 == 0) {
                     // state is even
-                    this->off();
-                    this->scheduleNextRun(this->_blinkSequenceWait);
-                } else {
-                    // state is odd
                     this->on();
                     this->scheduleNextRun(this->_blinkSequenceLength);
+                } else {
+                    // state is odd
+                    this->off();
+                    this->scheduleNextRun(this->_blinkSequenceWait);
                 }
             }
         }
